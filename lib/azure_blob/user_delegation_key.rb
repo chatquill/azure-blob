@@ -1,15 +1,22 @@
+require "time"
+
 require_relative "http"
 
 module AzureBlob
   class UserDelegationKey # :nodoc:
     EXPIRATION = 25200 # 7 hours
+    MAX_EXPIRATION = 604800 # 7 days
     EXPIRATION_BUFFER = 3600 # 1 hours
-    def initialize(account_name:, signer:)
+    def initialize(account_name:, signer:, expiration: EXPIRATION)
+      raise ArgumentError, "expiration must be a positive number of seconds" unless expiration.is_a?(Numeric) && expiration > 0
+      raise ArgumentError, "expiration cannot be greater than #{MAX_EXPIRATION} seconds (7 days)" if expiration > MAX_EXPIRATION
+
       @uri = URI.parse(
         "#{signer.host}/?restype=service&comp=userdelegationkey"
       )
 
       @signer = signer
+      @expiration_duration = expiration
 
       refresh
     end
@@ -25,7 +32,7 @@ module AzureBlob
 
 
       start = now.iso8601
-      @expiration = (now + EXPIRATION)
+      @expiration = (now + expiration_duration)
       expiry = @expiration.iso8601
 
       content = <<-XML.gsub!(/[[:space:]]+/, " ").strip!
@@ -49,6 +56,10 @@ module AzureBlob
       @user_delegation_key = Base64.decode64(doc.get_elements("/UserDelegationKey/Value").first.get_text.to_s)
     end
 
+    def signed_expiry_at
+      Time.parse(signed_expiry)
+    end
+
     attr_reader :signed_oid,
       :signed_tid,
       :signed_start,
@@ -60,9 +71,13 @@ module AzureBlob
     private
 
     def expired?
-      expiration.nil? || Time.now >= (expiration - EXPIRATION_BUFFER)
+      expiration.nil? || Time.now >= (expiration - refresh_buffer)
     end
 
-    attr_reader :uri, :user_delegation_key, :signer, :expiration
+    def refresh_buffer
+      [ EXPIRATION_BUFFER, expiration_duration / 2 ].min
+    end
+
+    attr_reader :uri, :user_delegation_key, :signer, :expiration, :expiration_duration
   end
 end

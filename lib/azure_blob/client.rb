@@ -24,6 +24,7 @@ module AzureBlob
       @access_key = access_key
       @principal_id = principal_id
       @use_managed_identities = options[:use_managed_identities]
+      @delegation_key_expiration = options[:delegation_key_expiration]
       signer unless options[:lazy]
     end
 
@@ -452,12 +453,15 @@ module AzureBlob
             )
           end
 
-          using_managed_identities ?
-            AzureBlob::EntraIdSigner.new(account_name:, host:, principal_id:) :
+          if using_managed_identities
+            entra_id_options = delegation_key_expiration.nil? ? {} : { delegation_key_expiration: }
+            AzureBlob::EntraIdSigner.new(account_name:, host:, principal_id:, **entra_id_options)
+          else
             AzureBlob::SharedKeySigner.new(account_name:, access_key:, host:)
+          end
         end
     end
 
-    attr_reader :account_name, :container, :http, :cloud_regions, :access_key, :principal_id, :use_managed_identities
+    attr_reader :account_name, :container, :http, :cloud_regions, :access_key, :principal_id, :use_managed_identities, :delegation_key_expiration
   end
 end
